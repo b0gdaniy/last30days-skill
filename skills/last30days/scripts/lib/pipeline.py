@@ -68,6 +68,7 @@ from . import (
     threads,
     tiktok,
     topic_shape,
+    trendshift,
     truthsocial,
     trustpilot,
     x_api,
@@ -84,7 +85,7 @@ from . import fusion
 from . import render
 from .fusion import collapse_duplicate_urls, weighted_rrf
 
-DISCOVERY_SOURCES = ("reddit", "hackernews", "digg", "x")
+DISCOVERY_SOURCES = ("reddit", "hackernews", "digg", "trendshift", "x")
 _DISCOVERY_GENERIC_DOMAIN_TERMS = {
     "ai", "artificial", "intelligence", "tech", "technology", "trending", "trend",
 }
@@ -346,6 +347,12 @@ def available_sources(
         requested_sources and "dripstack" in requested_sources
     ):
         available.append("dripstack")
+    # Trendshift is a free public ranking, but remains opt-in: it is a
+    # third-party repository-momentum signal rather than conversational evidence.
+    if "trendshift" in include_sources or (
+        requested_sources and "trendshift" in requested_sources
+    ):
+        available.append("trendshift")
     if which("digg-pp-cli"):
         available.append("digg")
     # arXiv is default-on when its Printing Press CLI is installed (zero auth).
@@ -502,6 +509,18 @@ def _mock_discovery_items(
                 "relevance": 0.9,
                 "why_relevant": "Mock Digg discovery cluster",
             })
+        elif source == "trendshift":
+            items.append({
+                "id": f"discovery-ts-{index}",
+                "title": f"example/{slug}",
+                "url": f"https://trendshift.io/repositories/{index}",
+                "date": to_date,
+                "engagement": {"rank": index},
+                "relevance": 0.9,
+                "why_relevant": f"Trendshift daily rank #{index}",
+                "snippet": f"Trendshift daily rank #{index}.",
+                "metadata": {"rank": index},
+            })
         elif source == "x":
             items.append({
                 "id": f"discovery-x-{index}",
@@ -599,6 +618,14 @@ def _fetch_discovery_source(
                 if _matches_discovery_domain(plan.domain, str(item.get("title") or ""))
             ]
         return items, result.get("error")
+    if source == "trendshift":
+        items = trendshift.search_trendshift(plan.domain, from_date, to_date, depth=depth)
+        if keyword_gate:
+            items = [
+                item for item in items
+                if _matches_discovery_domain(plan.domain, str(item.get("title") or ""))
+            ]
+        return items, None
     if source == "x":
         # Discovery uses domain directly as query (no planner search_query)
         query = plan.domain
@@ -1189,7 +1216,7 @@ def _discovery_sweep(
     unsupported = sorted(set(requested or []) - set(DISCOVERY_SOURCES))
     if unsupported:
         raise ValueError(
-            "Discovery supports listing sources only: reddit, hackernews, digg "
+            "Discovery supports listing sources only: reddit, hackernews, digg, trendshift "
             f"(unsupported: {', '.join(unsupported)})"
         )
     available = list(DISCOVERY_SOURCES) if mock else [
@@ -5348,6 +5375,9 @@ def _retrieve_stream_impl(
         # tokenless run. The condition is logged in github.search_github.
         items = github.enrich_with_comments(items, depth=depth, token=token)
         return items, _result_outcome_artifact(source, response)
+    if source == "trendshift":
+        items = trendshift.search_trendshift(topic or subquery.search_query, from_date, to_date, depth=depth)
+        return items, {}
     if source == "pinterest":
         result = pinterest.search_pinterest(
             subquery.search_query, from_date, to_date,

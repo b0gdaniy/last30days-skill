@@ -16,6 +16,7 @@ SOURCE_QUALITY = {
     "digg": 0.85,
     "arxiv": 0.9,
     "techmeme": 0.85,
+    "trendshift": 0.7,
     "trustpilot": 0.78,
     # Verified-purchase reviews on a live aggregate rating: high-quality
     # buyer evidence, a notch above Trustpilot's open review model.

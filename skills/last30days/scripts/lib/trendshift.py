@@ -78,10 +78,16 @@ def fetch_trendshift(
     to_date: str,
     *,
     depth: str = "default",
+    require_snapshot_date: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
-    """Fetch the current listing and retain a fetch or snapshot error."""
+    """Fetch the current listing and retain a fetch or snapshot error.
+
+    ``to_date`` normally describes the research window, not a Trendshift
+    snapshot request. Only an explicit historical ``--as-of`` run requires
+    the current listing date to match it.
+    """
     snapshot_date = _current_snapshot_date()
-    if to_date != snapshot_date:
+    if require_snapshot_date and to_date != snapshot_date:
         message = (
             "Trendshift exposes only its current listing; requested snapshot "
             f"for {to_date} is unavailable."

@@ -621,7 +621,11 @@ def _fetch_discovery_source(
         return items, result.get("error")
     if source == "trendshift":
         items, error = trendshift.fetch_trendshift(
-            plan.domain, from_date, to_date, depth=depth,
+            plan.domain,
+            from_date,
+            to_date,
+            depth=depth,
+            require_snapshot_date=bool(config.get("_trendshift_explicit_as_of")),
         )
         if keyword_gate:
             items = [
@@ -1215,6 +1219,7 @@ def _discovery_sweep(
     ``run_discover_nominate`` (protocol leg 1) so the two paths can never
     drift on what a sweep means."""
     from_date, to_date = dates.get_date_range(lookback_days, as_of_date=as_of_date)
+    config = {**config, "_trendshift_explicit_as_of": as_of_date is not None}
     requested = normalize_requested_sources(requested_sources)
     unsupported = sorted(set(requested or []) - set(DISCOVERY_SOURCES))
     if unsupported:
@@ -2136,6 +2141,7 @@ def run(
     # parallel entity sub-runs can still share in-run hits.
     if not internal_subrun:
         youtube_yt.reset_search_cache()
+    config = {**config, "_trendshift_explicit_as_of": as_of_date is not None}
     settings = _resolve_depth_settings(depth, config)
     requested_sources = normalize_requested_sources(requested_sources)
     # Wall-clock origin for budget-aware enrichment lanes. Amazon review
@@ -5390,8 +5396,14 @@ def _retrieve_stream_impl(
         items = github.enrich_with_comments(items, depth=depth, token=token)
         return items, _result_outcome_artifact(source, response)
     if source == "trendshift":
-        items = trendshift.search_trendshift(topic or subquery.search_query, from_date, to_date, depth=depth)
-        return items, {}
+        items, error = trendshift.fetch_trendshift(
+            topic or subquery.search_query,
+            from_date,
+            to_date,
+            depth=depth,
+            require_snapshot_date=bool(config.get("_trendshift_explicit_as_of")),
+        )
+        return items, _result_outcome_artifact(source, {"error": error} if error else {})
     if source == "pinterest":
         result = pinterest.search_pinterest(
             subquery.search_query, from_date, to_date,

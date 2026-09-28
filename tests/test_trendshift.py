@@ -52,12 +52,55 @@ def test_historical_snapshot_is_not_mislabeled_as_current_listing(monkeypatch):
     monkeypatch.setattr(trendshift, "_current_snapshot_date", lambda: "2026-09-28")
 
     items, error = trendshift.fetch_trendshift(
-        "acme", "2026-08-01", "2026-08-31",
+        "acme", "2026-08-01", "2026-08-31", require_snapshot_date=True,
     )
 
     assert items == []
     assert "2026-08-31" in (error or "")
     get_text.assert_not_called()
+
+
+def test_research_window_date_does_not_block_current_listing(monkeypatch):
+    get_text = mock.Mock(return_value=LISTING)
+    monkeypatch.setattr(trendshift.http, "get_text", get_text)
+    monkeypatch.setattr(trendshift, "_current_snapshot_date", lambda: "2026-09-28")
+
+    items, error = trendshift.fetch_trendshift(
+        "acme", "2026-08-29", "2026-09-27",
+    )
+
+    assert error is None
+    assert [item["title"] for item in items] == ["acme/rocket"]
+    assert items[0]["date"] == "2026-09-28"
+    get_text.assert_called_once()
+
+
+def test_research_stream_surfaces_trendshift_fetch_failure(monkeypatch):
+    monkeypatch.setattr(
+        pipeline.trendshift,
+        "fetch_trendshift",
+        lambda *args, **kwargs: ([], "Trendshift listing fetch failed"),
+    )
+    subquery = schema.SubQuery(
+        label="primary", search_query="AI agents", ranking_query="AI agents",
+        sources=["trendshift"],
+    )
+
+    items, artifact = pipeline._retrieve_stream_impl(
+        topic="AI agents",
+        subquery=subquery,
+        source="trendshift",
+        config={},
+        depth="quick",
+        date_range=("2026-08-29", "2026-09-28"),
+        runtime=schema.ProviderRuntime(
+            reasoning_provider="none", planner_model="none", rerank_model="none",
+        ),
+        mock=False,
+    )
+
+    assert items == []
+    assert artifact["_source_outcome"]["detail"] == "Trendshift listing fetch failed"
 
 
 def test_discovery_fetch_preserves_trendshift_failure(monkeypatch):

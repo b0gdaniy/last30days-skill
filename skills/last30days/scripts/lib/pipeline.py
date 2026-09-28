@@ -258,6 +258,7 @@ MOCK_AVAILABLE_SOURCES = [
     "linkedin",
     "corpus",
     "dripstack",
+    "trendshift",
     "telegram",
 ]
 
@@ -516,10 +517,10 @@ def _mock_discovery_items(
                 "url": f"https://trendshift.io/repositories/{index}",
                 "date": to_date,
                 "engagement": {"rank": index},
+                "metadata": {"rank": index, "discovery_signal": 1.0 / index},
                 "relevance": 0.9,
                 "why_relevant": f"Trendshift daily rank #{index}",
                 "snippet": f"Trendshift daily rank #{index}.",
-                "metadata": {"rank": index},
             })
         elif source == "x":
             items.append({
@@ -619,13 +620,15 @@ def _fetch_discovery_source(
             ]
         return items, result.get("error")
     if source == "trendshift":
-        items = trendshift.search_trendshift(plan.domain, from_date, to_date, depth=depth)
+        items, error = trendshift.fetch_trendshift(
+            plan.domain, from_date, to_date, depth=depth,
+        )
         if keyword_gate:
             items = [
                 item for item in items
                 if _matches_discovery_domain(plan.domain, str(item.get("title") or ""))
             ]
-        return items, None
+        return items, error
     if source == "x":
         # Discovery uses domain directly as query (no planner search_query)
         query = plan.domain
@@ -1406,6 +1409,11 @@ def _floor_survivor_records(
         native_total = sum(
             rerank.discovery_engagement_total(item) for item in evidence_items
         )
+        ranked_listing_signal = sum(
+            rerank.discovery_signal_total(item)
+            for item in evidence_items
+            if item.source == "trendshift"
+        )
         score = rerank.discovery_velocity_score(evidence_items, as_of_date=to_date)
         if not rerank.passes_discovery_floor(
             source_count=len(sources),
@@ -1416,6 +1424,7 @@ def _floor_survivor_records(
             # the enriched corpus - a successful enrichment pass is
             # multi-source for almost any topic, so it would never bind.
             seed_source_count=len({item.source for item in nomination.items}),
+            ranked_listing_signal=ranked_listing_signal,
         ):
             # Sub-floor evidence never ranks; remember what came closest so a
             # nothing-solid brief can still name the strongest weak signal.
@@ -1434,10 +1443,15 @@ def _floor_survivor_records(
             f" and {sources[-1]}" if len(sources) > 1 else (sources[0] if sources else "the listings")
         )
         noun = "evidence item" if entry.report is not None else "listing item"
+        if native_total:
+            signal_summary = f"generated {native_total:,.0f} native interactions"
+        elif ranked_listing_signal:
+            signal_summary = "earned a top-five Trendshift listing rank"
+        else:
+            signal_summary = "provided no native interaction count"
         why = (
             f"{len(evidence_items)} {noun}{'s' if len(evidence_items) != 1 else ''} on "
-            f"{source_phrase} generated {native_total:,.0f} native interactions. "
-            f"{nomination.summary[:220]}"
+            f"{source_phrase} {signal_summary}. {nomination.summary[:220]}"
         )
         top_comment = _best_community_comment(evidence_items) if entry.report is not None else None
         # Stage-2 angle input: the survivor's strongest evidence, enriched
@@ -1447,7 +1461,7 @@ def _floor_survivor_records(
             item.title.strip()
             for item in sorted(
                 evidence_items,
-                key=rerank.discovery_engagement_total,
+                key=rerank.discovery_signal_total,
                 reverse=True,
             )
             if item.title and item.title.strip()

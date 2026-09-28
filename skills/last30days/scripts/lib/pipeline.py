@@ -1414,10 +1414,10 @@ def _floor_survivor_records(
         native_total = sum(
             rerank.discovery_engagement_total(item) for item in evidence_items
         )
-        ranked_listing_signal = sum(
-            rerank.discovery_signal_total(item)
-            for item in evidence_items
-            if item.source == "trendshift"
+        ranked_listing_signal = max(
+            (rerank.discovery_signal_total(item)
+             for item in evidence_items if item.source == "trendshift"),
+            default=0.0,
         )
         score = rerank.discovery_velocity_score(evidence_items, as_of_date=to_date)
         if not rerank.passes_discovery_floor(
